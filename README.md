@@ -210,9 +210,9 @@ PHASE 2 — CHOOSE CONNECTIVITY PATTERN
   OPTION A — ExternalName Service (DNS alias)
   ─────────────────────────────────────────────
 
-    Pod calls internal K8s service name
-    → K8s resolves to legacy hostname
-    → No IP hardcoding anywhere
+    Pod calls internal K8s service name.
+    K8s resolves it to the legacy hostname transparently.
+    No IP hardcoded anywhere in manifests or app code.
 
     Pod
      │  calls "ems-svc.telecom-core.svc.cluster.local"
@@ -222,38 +222,150 @@ PHASE 2 — CHOOSE CONNECTIVITY PATTERN
      ▼
     EMS on VM (10.50.10.25)
 
+    # externalname-ems-service.yaml
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: ems-svc
+      namespace: telecom-core
+    spec:
+      type: ExternalName
+      externalName: ems.internal.telco.com   # legacy hostname
+      ports:
+      - port: 9043
+        protocol: TCP
+
     ✅ Clean — no IP in code or manifests
-    ⚠️  Legacy hostname must be DNS-resolvable from CoreDNS
+    ✅ If legacy IP changes, only DNS record needs updating
+    ✅ Transparent for app — calls K8s service name as usual
+    ⚠️  Legacy hostname MUST be resolvable from cluster CoreDNS
+    ⚠️  Does not work if legacy system has no DNS entry (IP only)
+
+    → Use when: legacy system has a stable internal DNS name
+    → Telecom example: AMF pod → EMS/NMS alarm endpoint
+    → Banking example: payment pod → Websphere on-prem
 
 
-  OPTION B — Endpoints + Service (direct IP)
-  ─────────────────────────────────────────────
+  OPTION B — Service + Endpoints (IP hardcoded)
+  ───────────────────────────────────────────────
 
-    Service (no selector) + manual Endpoints object
-    → IP of legacy system hardcoded in Endpoints
-    → Works for any protocol (TCP, UDP, JDBC)
+    Service without selector + manual Endpoints object.
+    IP of legacy system is hardcoded directly in Endpoints.
+    Works for ANY protocol — TCP, UDP, JDBC, SNMP.
 
-    Pod → ClusterIP Service → Endpoints (ip: 10.50.10.25)
-                                              ↓
-                                       Legacy App on VM
+    Pod → ClusterIP Service → Endpoints → Legacy App on VM
+                               (10.50.10.25:9043)
 
-    ✅ Protocol-agnostic (TCP, UDP, SNMP, JDBC)
-    ✅ No DNS dependency
-    ⚠️  IP hardcoded → must update if legacy IP changes
+    # service-no-selector.yaml
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: ems-svc
+      namespace: telecom-core
+    spec:
+      ports:
+      - port: 9043          # port pods will call
+        targetPort: 9043    # port on legacy system
+        protocol: TCP
+      # no selector — managed manually via Endpoints
+
+    ---
+    # endpoints-ems.yaml
+    apiVersion: v1
+    kind: Endpoints
+    metadata:
+      name: ems-svc         # MUST match Service name exactly
+      namespace: telecom-core
+    subsets:
+    - addresses:
+      - ip: 10.50.10.25     # legacy EMS IP — hardcoded here
+      ports:
+      - port: 9043
+
+    ✅ Protocol-agnostic — TCP, UDP, JDBC, SNMP all work
+    ✅ No DNS dependency — works even with IP-only legacy systems
+    ✅ Simple and explicit
+    ⚠️  IP is hardcoded → must update Endpoints if legacy IP changes
+    ⚠️  No automatic failover if legacy has multiple IPs
+
+    → Use when: legacy system has no DNS entry, or uses TCP/UDP
+                protocols that ExternalName cannot handle
+    → Telecom example: SMF pod → Oracle subscriber DB (JDBC)
+    → Banking example: batch pod → DB2 on-prem (JDBC port 50000)
 
 
-  OPTION C — API Gateway / Adapter
-  ─────────────────────────────────────────────
+  OPTION C — API Gateway / Adapter (Kong or custom adapter)
+  ───────────────────────────────────────────────────────────
 
-    Adapter pod translates modern protocol to legacy protocol
-    → REST/JSON → CORBA / SOAP / SNMP
+    An adapter pod (or Kong) sits between modern NF pods
+    and the legacy system. It translates protocols:
+    REST/JSON → CORBA / SOAP / SNMP / proprietary.
 
-    Pod → REST calls → Adapter Pod → legacy protocol → Legacy App
+    Pod (REST/JSON)
+     │
+     ▼
+    ┌───────────────────────────────┐
+    │  API Gateway (Kong)           │
+    │  OR custom adapter pod        │
+    │                               │
+    │  - protocol translation       │
+    │  - authentication             │
+    │  - rate limiting              │
+    │  - request/response logging   │
+    └───────────────┬───────────────┘
+                    │  legacy protocol
+                    │  (CORBA / SOAP / SNMP)
+                    ▼
+    Legacy App on VM (unchanged)
 
-    ✅ Decouples modern NFs from legacy protocol
-    ✅ Add auth, logging, rate-limiting at gateway
+    Kong deployed in OpenShift as an Operator:
+    ────────────────────────────────────────────
+    # kong route pointing to legacy backend
+    apiVersion: configuration.konghq.com/v1
+    kind: KongIngress
+    metadata:
+      name: legacy-ems-route
+      namespace: telecom-core
+    upstream:
+      host: ems.internal.telco.com
+      port: 9043
+
+    Custom adapter pod (lightweight approach):
+    ────────────────────────────────────────────
+    # adapter translates REST POST /alarm
+    # → SNMP trap to EMS
+    # deployed as a standard OpenShift Deployment
+    # exposed as ClusterIP Service to NF pods
+
+    ✅ Modern NF pods speak REST — no legacy protocol knowledge needed
     ✅ Legacy app never changes
-    ⚠️  Additional component to maintain
+    ✅ Add auth, rate-limiting, logging at gateway layer
+    ✅ Single point to monitor legacy connectivity
+    ⚠️  Extra component to build, deploy, and maintain
+    ⚠️  Adds latency (one extra hop)
+    ⚠️  Gateway becomes a single point of failure → needs HA
+
+    → Use when: legacy uses CORBA / SOAP / proprietary protocol
+                that pods cannot speak natively
+    → Telecom example: 5G NF (REST) → legacy OSS (CORBA/SOAP)
+    → Banking example: microservice (REST) → Websphere EJB (IIOP)
+
+
+  CONNECTIVITY PATTERN DECISION GUIDE
+  ─────────────────────────────────────
+
+  ┌──────────────────────────────┬────────────┬────────────┬──────────┐
+  │ Situation                    │ Option A   │ Option B   │ Option C │
+  ├──────────────────────────────┼────────────┼────────────┼──────────┤
+  │ Legacy has DNS entry         │ ✅ ideal   │ works      │ works    │
+  │ Legacy has IP only           │ ❌         │ ✅ ideal   │ works    │
+  │ Protocol is HTTP/HTTPS       │ ✅         │ ✅         │ overkill │
+  │ Protocol is JDBC/TCP         │ ⚠️ limited │ ✅ ideal   │ works    │
+  │ Protocol is SNMP/UDP         │ ❌         │ ✅ ideal   │ works    │
+  │ Protocol is CORBA/SOAP       │ ❌         │ ❌         │ ✅ ideal │
+  │ Need auth / rate limiting    │ ❌         │ ❌         │ ✅       │
+  │ Simplest to implement        │ ✅         │ ✅         │ ❌       │
+  └──────────────────────────────┴────────────┴────────────┴──────────┘
 
 
 PHASE 3 — SECURITY LAYER

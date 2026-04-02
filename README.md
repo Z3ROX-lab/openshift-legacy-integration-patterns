@@ -163,6 +163,103 @@ DECISION MATRIX
 
 ---
 
+## Container Images in Production
+
+Once you have chosen your strategy, the next question is:
+**what image runs inside the pod ?**
+
+### Strategy 1 — No pod for legacy, no image needed
+
+```
+Legacy app stays on its VM.
+You only create a Service object (ExternalName or Endpoints).
+No image, no pod, no container.
+```
+
+### Strategy 2 / 3 — A pod is created, image source matters
+
+```
+IMAGE SOURCE 1 — Vendor-provided image (most common in telecom)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Software vendor delivers official container images
+  packaged in a Helm chart or Operator.
+
+  Nokia      → AMF, SMF, UPF images via their private registry
+  Ericsson   → 5G Core NF images via their private registry
+  Oracle     → container-registry.oracle.com/database/enterprise:19c
+  IBM        → icr.io/appcafe/websphere-traditional:9.0.5
+
+  You pull using credentials provided with the vendor license.
+  Image is tested and certified by the vendor for OpenShift.
+
+
+IMAGE SOURCE 2 — You build the image (rehost scenario)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  No official image exists → your team builds one.
+  Base image is always Red Hat UBI in production:
+
+  FROM registry.access.redhat.com/ubi8/ubi:latest
+
+  RUN dnf install -y java-11-openjdk
+
+  COPY mylegacyapp.jar /opt/app/
+  COPY config/         /opt/app/config/
+
+  CMD ["java", "-jar", "/opt/app/mylegacyapp.jar"]
+
+  Why UBI (Universal Base Image) ?
+  ─────────────────────────────────
+  → officially supported on OpenShift
+  → passes security scans (Trivy, ACS/Stackrox)
+  → no license issues
+  → standard base in telecom and banking prod environments
+
+
+IMAGE SOURCE 3 — Community / upstream image (non-critical only)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  docker.io/library/postgres:15
+  quay.io/prometheus/prometheus:v2.45.0
+
+  ⚠️  Never used directly in production telecom / banking.
+  Always mirrored and scanned first via internal Harbor:
+
+  docker.io/postgres:15
+       │
+       │  pull → Trivy scan → push
+       ▼
+  harbor.internal.telco.com/library/postgres:15
+       │
+       │  pods pull from Harbor only
+       ▼
+  [pod in OpenShift]
+```
+
+### Image mapping for common scenarios
+
+```
+┌───────────────────────────────┬──────────────────────────────────────┐
+│ Workload                      │ Image source                         │
+├───────────────────────────────┼──────────────────────────────────────┤
+│ AMF / SMF / UPF (5G Core)     │ Nokia / Ericsson vendor registry     │
+│ EMS adapter pod (custom)      │ UBI8 base + your adapter binary      │
+│ CDR mediation pod (rehost)    │ UBI8 base + mediation binary         │
+│ Oracle subscriber DB          │ Oracle official image                │
+│ Legacy NRF adapter            │ UBI8 base + custom REST→SBI adapter  │
+│ Websphere (banking, rehost)   │ IBM official image (icr.io)          │
+│ Batch / CronJob               │ UBI8 base + batch binary / scripts   │
+└───────────────────────────────┴──────────────────────────────────────┘
+```
+
+> **Production rule:** In regulated environments (telecom, banking), pods
+> never pull directly from docker.io or external registries. All images
+> go through an internal Harbor registry with Trivy scanning first.
+> This is your supply chain security boundary.
+
+---
+
 ## Real Integration Flow — Step by Step
 
 ```

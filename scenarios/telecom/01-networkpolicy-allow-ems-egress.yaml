@@ -1,0 +1,46 @@
+# NETWORKPOLICY — allow AMF egress to EMS only
+#
+# Keeps default-deny-all in place (zero trust posture).
+# Adds a targeted whitelist for AMF pods only:
+#   - UDP 162  → SNMP traps to EMS
+#   - TCP 9043 → HTTPS management interface
+#   - UDP 53   → DNS resolution (always needed)
+#   - TCP 53   → DNS over TCP fallback
+#
+# ⚠️  podSelector uses label app=amf — only AMF pods
+#     get this egress. Other pods in namespace remain blocked.
+#
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-amf-egress-to-ems
+  namespace: 5g-core
+spec:
+  podSelector:
+    matchLabels:
+      app: amf             # targets AMF pods only
+  policyTypes:
+  - Egress
+  egress:
+  # allow DNS — mandatory or nothing resolves
+  - ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+
+  # allow SNMP traps to EMS
+  - to:
+    - ipBlock:
+        cidr: 10.50.10.25/32    # EMS VM IP — single host
+    ports:
+    - protocol: UDP
+      port: 162                  # SNMP trap receiver
+
+  # allow HTTPS management to EMS
+  - to:
+    - ipBlock:
+        cidr: 10.50.10.25/32    # same EMS VM
+    ports:
+    - protocol: TCP
+      port: 9043                 # EMS HTTPS management port

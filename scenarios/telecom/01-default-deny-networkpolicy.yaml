@@ -1,0 +1,21 @@
+# DEFAULT DENY ALL — applied as cluster security baseline
+# This blocks ALL ingress and egress for every pod
+# in namespace 5g-core.
+#
+# Problem: AMF pod cannot send SNMP traps to EMS (UDP 162)
+#          AMF pod cannot reach EMS HTTPS (TCP 9043)
+#          Failure is SILENT — UDP has no connection error.
+#          Pod stays Running. No K8s event. Alarms never arrive.
+#
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: 5g-core
+spec:
+  podSelector: {}     # applies to ALL pods in namespace
+  policyTypes:
+  - Ingress
+  - Egress
+  # no ingress rules  → all inbound traffic blocked
+  # no egress rules   → all outbound traffic blocked

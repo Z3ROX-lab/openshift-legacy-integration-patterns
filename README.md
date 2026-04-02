@@ -582,28 +582,131 @@ Detailed diagnosis commands and fixes are included in each scenario.
 
 ## Scenarios
 
-Each scenario includes:
-- **Context** — what the platform looks like
-- **The problem** — what broke and why
-- **Diagnosis** — exact commands with expected output
-- **Fix** — working manifests ready to apply
-- **Prevention** — what to put in place to avoid recurrence
+Each scenario is self-contained and follows the same structure:
+
+```
+scenarios/<domain>/<XX-scenario-name>/
+├── README.md          ← context, problem, diagnosis, fix, prevention
+├── manifests/
+│   ├── broken/        ← apply this to reproduce the problem
+│   └── fixed/         ← apply this to resolve it
+└── diagnosis/
+    └── commands.md    ← exact commands with expected output
+```
+
+---
 
 ### Telecom Scenarios
 
-| # | Scenario | Strategy | Status |
-|---|---|---|---|
-| 01 | [AMF pod → EMS alarm integration (SNMP/TCP)](./scenarios/telecom/01-amf-ems-snmp-integration/) | Strategy 1 | 🚧 Coming |
-| 02 | [Legacy NRF coexistence — 4G to 5G transition](./scenarios/telecom/02-legacy-nrf-coexistence/) | Strategy 1 | 🚧 Coming |
-| 03 | [CDR collection via CFT file transfer](./scenarios/telecom/03-cdr-cft-file-transfer/) | Strategy 1 | 🚧 Coming |
-| 04 | [Oracle subscriber DB access from NF pods](./scenarios/telecom/04-oracle-db-connectivity/) | Strategy 1 | 🚧 Coming |
+#### 01 — AMF Pod → EMS Alarm Integration (SNMP/TCP)
+📁 [scenarios/telecom/01-amf-ems-snmp-integration](./scenarios/telecom/01-amf-ems-snmp-integration/README.md)
+**Strategy 1** | ✅ Available
+
+A 5G Core AMF pod needs to send SNMP traps to a legacy EMS running
+on a VM, and sync configuration over HTTPS. Three issues combine on
+day one: a default-deny NetworkPolicy silently blocks UDP 162 and
+TCP 9043, CoreDNS cannot resolve the internal telecom domain, and
+the EMS TLS certificate is signed by an internal CA unknown to pods.
+
+> You will learn: egress NetworkPolicy for UDP/TCP, CoreDNS forwarder
+> for internal domains, internal CA bundle injection into pods.
+
+---
+
+#### 02 — Legacy NRF Coexistence — 4G to 5G Transition
+📁 [scenarios/telecom/02-legacy-nrf-coexistence](./scenarios/telecom/02-legacy-nrf-coexistence/README.md)
+**Strategy 1** | 🚧 Coming
+
+During the transition from 4G to 5G, a legacy NRF (Network Repository
+Function) running on a VM still serves some 4G NFs. New cloud-native
+5G NFs deployed in OpenShift need to discover and call NFs registered
+on the legacy NRF. Direct pod-to-VM connectivity works but NF
+discovery fails because the legacy NRF API is not SBI-compliant.
+
+> You will learn: ExternalName Service for NRF bridging, dual
+> registration pattern, gradual NF cutover strategy.
+
+---
+
+#### 03 — CDR Collection via CFT File Transfer
+📁 [scenarios/telecom/03-cdr-cft-file-transfer](./scenarios/telecom/03-cdr-cft-file-transfer/README.md)
+**Strategy 1** | 🚧 Coming
+
+A mediation pod in OpenShift collects CDR files (Call Detail Records)
+from a legacy CFT server over SFTP. The CFT server uses a non-standard
+port, the PVC backing the mediation pod is undersized and fills up
+during peak traffic, and a missing egress rule blocks the SFTP
+connection silently.
+
+> You will learn: egress NetworkPolicy for non-standard SFTP ports,
+> PVC sizing and monitoring, init container pattern for file staging,
+> CDR pipeline observability.
+
+---
+
+#### 04 — Oracle Subscriber DB Access from NF Pods
+📁 [scenarios/telecom/04-oracle-db-connectivity](./scenarios/telecom/04-oracle-db-connectivity/README.md)
+**Strategy 1** | 🚧 Coming
+
+SMF and UDM pods need to query a legacy Oracle subscriber database
+running on a VM for session management and authentication. The
+database uses JDBC over TCP 1521. Connection pool exhaustion occurs
+under traffic load when the number of pod replicas scales up, and
+the Oracle JDBC driver requires a wallet file for TLS — not a
+standard CA bundle.
+
+> You will learn: Endpoints object for JDBC connectivity, connection
+> pool sizing for multi-replica pods, Oracle wallet injection as a
+> Secret, egress NetworkPolicy for JDBC.
+
+---
 
 ### Banking Scenarios
 
-| # | Scenario | Strategy | Status |
-|---|---|---|---|
-| 05 | [Websphere app connectivity from K8s pods](./scenarios/banking/05-websphere-connectivity/) | Strategy 1 | 🚧 Coming |
-| 06 | [Autosys batch job integration](./scenarios/banking/06-autosys-batch-integration/) | Strategy 1/2 | 🚧 Coming |
+#### 05 — Websphere Connectivity from OpenShift Pods
+📁 [scenarios/banking/05-websphere-connectivity](./scenarios/banking/05-websphere-connectivity/README.md)
+**Strategy 1 + Option C (API Gateway)** | 🚧 Coming
+
+A modern payment microservice pod in OpenShift needs to call a legacy
+Websphere Application Server running on a VM. Websphere exposes
+business logic via SOAP/EJB over IIOP — a protocol modern pods
+cannot speak natively. A Kong adapter is deployed as a pod to
+translate REST calls from the microservice into SOAP calls to
+Websphere. Three issues arise: NetworkPolicy blocks egress to
+Websphere, the Websphere SOAP endpoint uses a self-signed certificate,
+and Kong needs to be configured to handle IIOP protocol translation.
+
+> What is Websphere: IBM's enterprise Java application server used
+> in banks to run core business logic (SOAP, EJB, JMS, XA
+> transactions). Still running in most major banks because the cost
+> and risk of replacing it is too high.
+
+> You will learn: Kong adapter deployment for SOAP/REST translation,
+> egress NetworkPolicy for Websphere IIOP port (9043/9060), Kong
+> KongIngress CR configuration, self-signed cert handling.
+
+---
+
+#### 06 — Autosys Batch Job Integration
+📁 [scenarios/banking/06-autosys-batch-integration](./scenarios/banking/06-autosys-batch-integration/README.md)
+**Strategy 1 / Strategy 2** | 🚧 Coming
+
+An end-of-day batch job historically triggered by Autosys needs to
+run as a Kubernetes CronJob in OpenShift while still being monitored
+by Autosys during the transition period. The job processes trade
+files, writes results to a shared NFS volume, and must notify Autosys
+of completion or failure. PVC sizing, job timeout handling, and
+Autosys webhook notification from a pod are the main integration
+challenges.
+
+> What is Autosys: CA/Broadcom enterprise job scheduler used in
+> banks to orchestrate batch processes across hundreds of servers.
+> Think of it as cron — but with dependency chains, SLA tracking,
+> audit trails, and a central dashboard.
+
+> You will learn: CronJob for batch migration, PVC for shared file
+> storage, job completion webhook to legacy scheduler, resource
+> limits for batch workloads.
 
 ---
 

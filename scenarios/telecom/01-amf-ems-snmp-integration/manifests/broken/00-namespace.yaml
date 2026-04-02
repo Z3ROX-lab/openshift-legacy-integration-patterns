@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: 5g-core
+  labels:
+    environment: production
+    domain: core-network

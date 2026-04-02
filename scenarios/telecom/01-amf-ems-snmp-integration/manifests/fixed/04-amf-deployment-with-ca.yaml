@@ -1,0 +1,67 @@
+# AMF DEPLOYMENT — fixed state
+# Changes vs broken version:
+#   + CA bundle ConfigMap mounted at trust store path
+#   + EMS hostname resolvable (after CoreDNS fix)
+#   + Egress allowed (after NetworkPolicy fix)
+#
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: amf
+  namespace: 5g-core
+  labels:
+    app: amf
+    nf-type: amf
+    version: "23.6"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: amf
+  template:
+    metadata:
+      labels:
+        app: amf
+        nf-type: amf
+    spec:
+      containers:
+      - name: amf
+        # In production: vendor image from private registry
+        # image: vendor-registry.nokia.com/5gc/amf:23.6
+        # For lab reproduction:
+        image: registry.access.redhat.com/ubi8/ubi:latest
+        command: ["sleep", "3600"]
+        env:
+        - name: EMS_HOST
+          value: "ems.internal.telco.com"
+        - name: EMS_HTTPS_PORT
+          value: "9043"
+        - name: EMS_SNMP_PORT
+          value: "162"
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        volumeMounts:
+        # mount internal CA cert into pod trust store
+        - name: internal-ca-bundle
+          mountPath: /etc/pki/ca-trust/source/anchors/internal-telco-ca.crt
+          subPath: ca-bundle.crt
+          readOnly: true
+        # liveness probe — checks EMS TCP reachability
+        # pod health reflects EMS reachability
+        livenessProbe:
+          tcpSocket:
+            host: ems.internal.telco.com
+            port: 9043
+          initialDelaySeconds: 30
+          periodSeconds: 15
+          failureThreshold: 3
+      volumes:
+      # internal CA bundle from ConfigMap
+      - name: internal-ca-bundle
+        configMap:
+          name: internal-telco-ca-bundle

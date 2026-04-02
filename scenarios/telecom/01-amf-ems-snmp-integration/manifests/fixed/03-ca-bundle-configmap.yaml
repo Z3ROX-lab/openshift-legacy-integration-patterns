@@ -1,0 +1,31 @@
+# INTERNAL CA BUNDLE — telecom internal CA certificate
+#
+# The EMS TLS certificate is signed by the internal
+# telecom CA. Pods do not trust it by default.
+# This ConfigMap holds the CA cert and is mounted
+# into the AMF pod trust store.
+#
+# ⚠️  Replace the placeholder cert below with your
+#     actual internal CA certificate (PEM format).
+#
+# To get your internal CA cert:
+#   openssl s_client -connect ems.internal.telco.com:9043 \
+#     -showcerts 2>/dev/null | openssl x509 -outform PEM
+#
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: internal-telco-ca-bundle
+  namespace: 5g-core
+  labels:
+    app: ca-bundle
+    domain: internal.telco.com
+data:
+  ca-bundle.crt: |
+    -----BEGIN CERTIFICATE-----
+    # Replace with your actual internal CA certificate (PEM format)
+    # Example:
+    # MIIDXTCCAkWgAwIBAgIJAKxxxxxxxxxxxxxxMA0GCSqGSIb3DQEBCwUAMEUxCzAJ
+    # BgNVBAYTAlVTMRMwEQYDVQQIDApTb21lLVN0YXRlMSEwHwYDVQQKDBhJbnRlcm5l
+    # ...
+    -----END CERTIFICATE-----

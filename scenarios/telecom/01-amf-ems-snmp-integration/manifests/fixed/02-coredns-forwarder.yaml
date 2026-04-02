@@ -1,0 +1,43 @@
+# COREDNS FORWARDER — internal telecom domain
+#
+# Adds a forwarding rule so CoreDNS resolves
+# *.internal.telco.com by forwarding to the
+# corporate internal DNS server (10.0.0.53).
+#
+# ⚠️  This patches the existing dns-default ConfigMap.
+#     Apply with: oc apply -f 02-coredns-forwarder.yaml
+#     Then restart CoreDNS:
+#       oc rollout restart deployment/dns-default -n openshift-dns
+#
+# ⚠️  Replace 10.0.0.53 with your actual internal DNS server IP.
+#
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dns-default
+  namespace: openshift-dns
+data:
+  Corefile: |
+    # default OpenShift cluster domain
+    .:5353 {
+        errors
+        health
+        kubernetes cluster.local in-addr.arpa ip6.arpa {
+            pods insecure
+            fallthrough in-addr.arpa ip6.arpa
+        }
+        prometheus :9153
+        forward . /etc/resolv.conf
+        cache 30
+        reload
+        loadbalance
+    }
+
+    # internal telecom domain forwarder
+    # forwards *.internal.telco.com to corporate DNS
+    internal.telco.com:5353 {
+        errors
+        forward . 10.0.0.53      # corporate internal DNS server
+        cache 30
+        reload
+    }

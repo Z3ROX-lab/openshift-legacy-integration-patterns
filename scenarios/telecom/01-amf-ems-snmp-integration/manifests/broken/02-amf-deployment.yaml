@@ -1,0 +1,48 @@
+# AMF DEPLOYMENT — broken state
+# Missing: internal CA bundle mount
+# Result:  HTTPS calls to EMS fail with
+#          "x509: certificate signed by unknown authority"
+#
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: amf
+  namespace: 5g-core
+  labels:
+    app: amf
+    nf-type: amf
+    version: "23.6"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: amf
+  template:
+    metadata:
+      labels:
+        app: amf
+        nf-type: amf
+    spec:
+      containers:
+      - name: amf
+        # In production: vendor image from private registry
+        # image: vendor-registry.nokia.com/5gc/amf:23.6
+        # For lab reproduction use a simple curl-enabled image:
+        image: registry.access.redhat.com/ubi8/ubi:latest
+        command: ["sleep", "3600"]
+        env:
+        - name: EMS_HOST
+          value: "ems.internal.telco.com"   # DNS will fail — not resolvable
+        - name: EMS_HTTPS_PORT
+          value: "9043"
+        - name: EMS_SNMP_PORT
+          value: "162"
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        # NO volumeMounts — no CA bundle injected
+        # → TLS to EMS will fail

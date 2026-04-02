@@ -1,0 +1,25 @@
+# EMS SERVICE — broken state (ExternalName)
+# Problem: ems.internal.telco.com is NOT resolvable
+#          from CoreDNS — no forwarder configured for
+#          the internal.telco.com domain.
+# Result:  nslookup returns NXDOMAIN from inside pod.
+#          AMF cannot reach EMS by hostname.
+#
+apiVersion: v1
+kind: Service
+metadata:
+  name: ems-svc
+  namespace: 5g-core
+  labels:
+    app: ems
+    type: legacy-integration
+spec:
+  type: ExternalName
+  externalName: ems.internal.telco.com   # not resolvable — DNS broken
+  ports:
+  - name: https-mgmt
+    port: 9043
+    protocol: TCP
+  - name: snmp-trap
+    port: 162
+    protocol: UDP
